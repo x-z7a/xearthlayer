@@ -402,6 +402,13 @@ sign-macos: ## Sign and notarize the release binaries with the Developer ID in t
 	@# store-credentials) or MACOS_NOTARY_KEY/_KEY_ID/_ISSUER_ID; see docs/dev/macos-signing-runbook.md.
 	@scripts/macos/sign-and-notarize.sh target/release/xearthlayer target/release/xearthlayer-publish
 
+.PHONY: fskit-macos
+fskit-macos: ## Build XEarthLayer.app with the FSKit module into target/fskit (macOS 26 SDK; see docs/macos.md)
+	@if [ "$$(uname)" != "Darwin" ]; then echo "$(RED)Error: fskit-macos must be run on macOS$(NC)"; exit 1; fi
+	@# Signing comes from MACOS_FSKIT_IDENTITY, _TEAM_ID, _APP_PROFILE and _EXT_PROFILE;
+	@# without them the bundle is ad-hoc signed and macOS will not load the module.
+	@scripts/macos/build-fskit.sh $(PKG_VERSION) target/fskit
+
 .PHONY: pkg-macos
 pkg-macos: ## Build signed, notarized installer packages from the signed release binaries (macOS only)
 	@if [ "$$(uname)" != "Darwin" ]; then echo "$(RED)Error: pkg-macos must be run on macOS$(NC)"; exit 1; fi

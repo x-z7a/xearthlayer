@@ -297,4 +297,9 @@ pub struct FuseSettings {
     /// Kernel starts throttling when pending requests exceed this.
     /// Default: 192 (75% of max_background)
     pub congestion_threshold: u16,
+    /// How macOS mounts the scenery filesystem: `auto`, `fskit` or `macfuse`.
+    /// `auto` uses XEarthLayer's FSKit module where it is installed and
+    /// enabled (macOS 26 and later) and macFUSE otherwise. Ignored elsewhere.
+    /// Default: auto
+    pub macos_backend: String,
 }

@@ -138,6 +138,9 @@ pub struct FuseConfig {
 
     /// Congestion threshold for background FUSE requests.
     pub congestion_threshold: u16,
+
+    /// How the ortho mount is made on macOS (`fuse.macos_backend`).
+    pub macos_backend: crate::fuse::fskit::MacosBackend,
 }
 
 impl OrchestratorConfig {
@@ -201,6 +204,9 @@ impl OrchestratorConfig {
         let fuse = FuseConfig {
             max_background: config.fuse.max_background,
             congestion_threshold: config.fuse.congestion_threshold,
+            // The parser only admits the values MacosBackend parses, so a
+            // failure here can only be a hand-built ConfigFile; take the default.
+            macos_backend: config.fuse.macos_backend.parse().unwrap_or_default(),
         };
 
         Self {

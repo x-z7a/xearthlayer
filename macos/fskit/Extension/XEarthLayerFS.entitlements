@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>com.apple.developer.fskit.fsmodule</key>
+	<true/>
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<!-- The bridge socket lives in ~/.xearthlayer/fskit/<mount>/. FSKit
+	     hands the module the resource directory, but a sandboxed process
+	     also needs this exception to connect(2) to a socket outside its
+	     container. -->
+	<key>com.apple.security.temporary-exception.files.home-relative-path.read-write</key>
+	<array>
+		<string>/.xearthlayer/fskit/</string>
+	</array>
+</dict>
+</plist>

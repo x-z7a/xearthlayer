@@ -31,6 +31,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
    - All FUSE operations run asynchronously on the Tokio runtime
    - Shared traits: `FileAttrBuilder`, `DdsRequestor` (SOLID: Interface Segregation)
    - Pattern matching for DDS files: `{row}_{col}_ZL{zoom}.dds`
+   - **FSKit backend (macOS 26+, #210)**: `fuse/bridge/` serves any
+     `fuse3::raw::Filesystem` over a Unix socket to XEarthLayer's own FSKit
+     module (`macos/fskit/`, Swift, sandboxed app extension), so the same
+     `Fuse3OrthoUnionFS` mounts with no kernel extension. `fuse/fskit/` picks
+     the backend at run time (`fuse.macos_backend` = auto|fskit|macfuse) and
+     drives `mount -F`. See `docs/dev/fskit-design.md`
    - Virtual DDS files open with `FOPEN_DIRECT_IO` on Linux so every read reaches the handler. macOS serves them through the kernel page cache (direct I/O crashes X-Plane's `mmap` texture loader under macFUSE), so the FUSE read counters under-report there; nothing functional depends on per-read visibility (#204). See `docs/dev/fuse-filesystem.md`
 
 2. **Tile Generation** (`xearthlayer/src/tile/`)
@@ -457,6 +463,9 @@ xearthlayer-publish --library <gen> <command>              # Any command in anot
 | `xearthlayer/src/fuse/fuse3/` | Fuse3 async multi-threaded filesystem |
 | `xearthlayer/src/fuse/fuse3/shared.rs` | Shared FUSE traits (FileAttrBuilder, DdsRequestor) |
 | `xearthlayer/src/fuse/fuse3/ortho_union_fs.rs` | Consolidated ortho FUSE mount |
+| `xearthlayer/src/fuse/bridge/` | FSKit bridge: wire protocol + server over any `fuse3` `Filesystem` |
+| `xearthlayer/src/fuse/fskit/` | macOS backend choice (FSKit vs macFUSE) and the `mount -F` driver |
+| `macos/fskit/` | FSKit module (Swift) and host `XEarthLayer.app`; built by `scripts/macos/build-fskit.sh` |
 | `xearthlayer/src/paths/` | Path resolution: BaseDirectories, platform layouts, role accessors |
 | `xearthlayer-cli/src/preflight/migrate.rs` | Layout migration check |
 | `xearthlayer-cli/src/preflight/proposal.rs` | Migration decision table and guidance (pure) |
@@ -520,7 +529,7 @@ Key sections:
 - `[prefetch]` - Boundary-driven prefetch, mode, web_api_port (default 8086), transition ramp
 - `[prewarm]` - Cold-start cache warming (grid_rows/grid_cols for DSF tile grid around airport)
 - `[executor]` - Per-chunk download behaviour only: `request_timeout_secs` and `max_retries`, which reach the executor through `ServiceConfig::chunk_download_config()`. Concurrency is NOT configurable: pool capacities, task dispatch limits and channel capacities are derived from logical core count by `ResourcePoolConfig::default()`. `max_concurrent_jobs` and `retry_base_delay_ms` were removed in #249; the backoff base is a literal in `tasks/download_chunks.rs`
-- `[fuse]` - FUSE kernel limits (max_background, congestion_threshold)
+- `[fuse]` - FUSE kernel limits (max_background, congestion_threshold); `macos_backend` (auto/fskit/macfuse)
 - `[night]` - Night lighting (enabled, default true)
 - `[tui]` - Dashboard display (symbols: auto/emoji/plain; `auto` detection in `xearthlayer-cli/src/ui/symbols.rs`)
 - `[packages]` - Package manager settings (concurrent_downloads: parallel part downloads 1-10). `library_url` defaults to library generation v2, `DEFAULT_LIBRARY_URL` (#334); the pre-0.5 root URL (`LEGACY_LIBRARY_URL`) and the alpha staging URL are retired values (`DEPRECATED_VALUES`) the parser reads as v2, and the layout migration keeps the legacy copy of the config on the old URL for a 0.4.x rollback
@@ -602,7 +611,7 @@ matrix jobs are renamed.
 ## Platform Support
 
 - **Linux**: ✅ Fully working (native FUSE)
-- **macOS**: ✅ Working (requires [macFUSE](https://macfuse.io); Apple Silicon tested; fuse3 pinned to `samsoir/fuse3` `master` (upstream + `configurable-background` plus the macOS reply-resilience patch — upstream PR [Sherlock-Holo/fuse3#137](https://github.com/Sherlock-Holo/fuse3/pull/137) — comma-joined mount options, and reply-drop log demotion); install/approval guide in `docs/macos.md`)
+- **macOS**: ✅ Working (requires [macFUSE](https://macfuse.io); Apple Silicon tested; fuse3 pinned to `samsoir/fuse3` `master` (upstream + `configurable-background` plus the macOS reply-resilience patch — upstream PR [Sherlock-Holo/fuse3#137](https://github.com/Sherlock-Holo/fuse3/pull/137) — comma-joined mount options, and reply-drop log demotion); install/approval guide in `docs/macos.md`). On macOS 26+ an FSKit module mounts without the kext (preview: needs a team-signed `XEarthLayer.app`, not yet in release packages; `docs/dev/fskit-design.md`)
 - **Windows**: ⏳ Planned (requires Dokan/WinFSP)
 
 ## References
@@ -622,6 +631,7 @@ matrix jobs are renamed.
 - **GeoIndex design**: `docs/dev/geo-index-design.md` (geospatial reference database, patch region ownership)
 - **Memory telemetry**: `docs/dev/memory-telemetry.md` (periodic memory sampling, trace interpretation, confounders)
 - **Cache integrity model**: `docs/dev/cache-integrity-design.md` (bounded reads, atomic durable writes, discard-on-reject, shared by every on-disk cache)
+- **FSKit mounting (macOS 26+)**: `docs/dev/fskit-design.md` (bridge protocol, backend selection, sandbox/signing, validation still owed)
 - **Night lighting**: `docs/dev/night-lighting-design.md` (phases 1, 2a and 2b implemented (packaging, black serving, real lit sizes, generated lit textures), plus the lit disk cache and LED lighting: lit textures served through FUSE, generated from OXO `.oxn` recipes and the user's Laminar lit art; a separate lit path beside the ortho executor)
 - **CI/CD pipeline**: `docs/dev/cicd.md` (branch model, release job graph, platform tiers, version propagation)
 - **Homebrew tap**: `docs/dev/cicd.md` "Homebrew Tap" (four casks, `xearthlayer`, `xearthlayer@prerelease`, `xearthlayer-publish` and `xearthlayer-publish@prerelease`, rendered from `pkg/homebrew/*.rb.tmpl` by `scripts/homebrew/render-cask.sh` in the publish job and pushed to `HOMEBREW_TAP_REPO`; never edited by hand; casks because a formula cannot depend on the `macfuse` cask)

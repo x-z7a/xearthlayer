@@ -198,6 +198,9 @@ pub struct Fuse3OrthoUnionFS {
     /// Congestion threshold for background FUSE requests (kernel limit).
     /// When set, overrides the kernel default (9) in the FUSE init handshake.
     fuse_congestion_threshold: Option<u16>,
+    /// How `mount_spawned` mounts on macOS: FSKit, macFUSE, or whichever is
+    /// usable (#210). Ignored on other platforms.
+    macos_backend: crate::fuse::fskit::MacosBackend,
 }
 
 impl Fuse3OrthoUnionFS {
@@ -253,6 +256,7 @@ impl Fuse3OrthoUnionFS {
             metrics_client: None,
             fuse_max_background: None,
             fuse_congestion_threshold: None,
+            macos_backend: crate::fuse::fskit::MacosBackend::default(),
         }
     }
 
@@ -289,6 +293,7 @@ impl Fuse3OrthoUnionFS {
             metrics_client: None,
             fuse_max_background: None,
             fuse_congestion_threshold: None,
+            macos_backend: crate::fuse::fskit::MacosBackend::default(),
         }
     }
 
@@ -380,6 +385,12 @@ impl Fuse3OrthoUnionFS {
     pub fn with_fuse_limits(mut self, max_background: u16, congestion_threshold: u16) -> Self {
         self.fuse_max_background = Some(max_background);
         self.fuse_congestion_threshold = Some(congestion_threshold);
+        self
+    }
+
+    /// Choose how [`mount_spawned`](Self::mount_spawned) mounts on macOS.
+    pub fn with_macos_backend(mut self, backend: crate::fuse::fskit::MacosBackend) -> Self {
+        self.macos_backend = backend;
         self
     }
 
@@ -552,6 +563,36 @@ impl Fuse3OrthoUnionFS {
     /// handle.unmount().await?;
     /// ```
     pub async fn mount_spawned(
+        self,
+        mountpoint: &str,
+    ) -> Fuse3Result<super::types::SpawnedMountHandle> {
+        #[cfg(target_os = "macos")]
+        {
+            use crate::fuse::fskit::{backend::plan, mount, Transport};
+
+            let plan = plan(self.macos_backend, mount::module_state());
+            if plan.first == Transport::Fskit {
+                match mount::mount_spawned(self, Path::new(mountpoint)).await {
+                    Ok(handle) => return Ok(handle),
+                    Err(failure) => match (plan.fall_back_to_macfuse, failure.fs) {
+                        (true, Some(fs)) => {
+                            warn!(
+                                error = %failure.error,
+                                "FSKit mount failed; falling back to macFUSE"
+                            );
+                            return fs.mount_spawned_fuse(mountpoint).await;
+                        }
+                        _ => return Err(Fuse3Error::MountFailed(failure.error.to_string())),
+                    },
+                }
+            }
+        }
+        self.mount_spawned_fuse(mountpoint).await
+    }
+
+    /// Mount through the FUSE kernel interface: `/dev/fuse` on Linux, the
+    /// macFUSE kernel extension on macOS.
+    async fn mount_spawned_fuse(
         self,
         mountpoint: &str,
     ) -> Fuse3Result<super::types::SpawnedMountHandle> {

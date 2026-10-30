@@ -162,6 +162,12 @@ pub const DEFAULT_FUSE_MAX_BACKGROUND: u16 = 256;
 /// Set to 75% of `max_background` as per kernel convention.
 pub const DEFAULT_FUSE_CONGESTION_THRESHOLD: u16 = DEFAULT_FUSE_MAX_BACKGROUND * 3 / 4; // 192
 
+/// macOS mount backend: FSKit where available, macFUSE otherwise (#210).
+pub const DEFAULT_FUSE_MACOS_BACKEND: &str = "auto";
+
+/// The values `fuse.macos_backend` accepts.
+pub const FUSE_MACOS_BACKEND_VALUES: &[&str] = &["auto", "fskit", "macfuse"];
+
 /// Night lighting is on by default; it only acts when the installed packages
 /// carry night recipes and the X-Plane installation is found.
 pub const DEFAULT_NIGHT_ENABLED: bool = true;
@@ -322,6 +328,7 @@ impl Default for ConfigFile {
             fuse: FuseSettings {
                 max_background: DEFAULT_FUSE_MAX_BACKGROUND,
                 congestion_threshold: DEFAULT_FUSE_CONGESTION_THRESHOLD,
+                macos_backend: DEFAULT_FUSE_MACOS_BACKEND.to_string(),
             },
             night: NightSettings {
                 enabled: DEFAULT_NIGHT_ENABLED,

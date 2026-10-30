@@ -1,14 +1,99 @@
 # XEarthLayer on macOS
 
-XEarthLayer supports macOS (Apple Silicon tested) using [macFUSE](https://macfuse.io) to provide the FUSE virtual filesystem that streams textures to X-Plane.
+XEarthLayer supports macOS (Apple Silicon tested). It streams textures to
+X-Plane through a virtual filesystem, mounted one of two ways:
+
+- **macOS 26 and later:** XEarthLayer's own FSKit file system extension. No
+  kernel extension, no Recovery mode, no reboot: you turn the extension on once
+  in System Settings. See
+  [Mounting without a kernel extension](#mounting-without-a-kernel-extension-macos-26).
+- **Any supported macOS:** [macFUSE](https://macfuse.io), which ships as a
+  kernel extension and needs the one-time security approval described in
+  [Installing macFUSE](#installing-macfuse).
+
+By default (`fuse.macos_backend = auto`) XEarthLayer uses the FSKit extension
+when it is installed and turned on, and macFUSE otherwise.
 
 ## Requirements
 
 - macOS 12 or later (tested on Apple Silicon; Intel Macs should work but are untested)
-- [macFUSE](https://macfuse.io) 5.x or later
+- On macOS 26 or later: the XEarthLayer file system extension, **or** macFUSE
+- On earlier releases: [macFUSE](https://macfuse.io) 5.x or later
 - X-Plane 12
 
+## Mounting without a kernel extension (macOS 26)
+
+macOS 26 lets a file system run as a sandboxed app extension through Apple's
+FSKit framework. XEarthLayer ships one, inside `XEarthLayer.app`. The extension
+does no work itself: it passes each request X-Plane makes to the running
+`xearthlayer` process over a local socket, so streaming, caching and prefetch
+behave exactly as they do with macFUSE.
+
+> **Preview.** Release packages do not include `XEarthLayer.app` yet. Until they
+> do, build it from source (below). The extension has to be signed by an Apple
+> developer team whose provisioning profile grants the FSKit Module capability.
+> macOS will not load an ad-hoc signed build.
+
+### 1. Install XEarthLayer.app
+
+From a source checkout, with your signing identity and profiles:
+
+```bash
+MACOS_FSKIT_IDENTITY="Apple Development: Your Name (TEAMID)" \
+MACOS_FSKIT_TEAM_ID=TEAMID \
+MACOS_FSKIT_APP_PROFILE=~/Downloads/XEarthLayer.provisionprofile \
+MACOS_FSKIT_EXT_PROFILE=~/Downloads/XEarthLayerFS.provisionprofile \
+make fskit-macos
+cp -R target/fskit/XEarthLayer.app /Applications/
+open /Applications/XEarthLayer.app
+```
+
+Opening the app once registers the extension with macOS. The app then explains
+the next step and offers to open System Settings.
+
+### 2. Turn the extension on
+
+Open **System Settings → General → Login Items & Extensions**. Under
+**Extensions**, click the **ⓘ** next to **File System Extensions** and turn on
+**XEarthLayer**. This is the whole approval: no restart.
+
+Check that macOS sees it:
+
+```bash
+pluginkit -m -i net.defreyssi.xearthlayer.fskit   # one line, not starting with '-'
+```
+
+### 3. Run XEarthLayer
+
+Install the `xearthlayer` command as described [below](#3-install-xearthlayer)
+(you can skip macFUSE), then run it as usual. The log says
+`Mounted through the FSKit module (no kernel extension)`, and `mount` lists the
+scenery mount with the type `xearthlayer` rather than `macfuse`.
+
+To force one path or the other:
+
+```bash
+xearthlayer config set fuse.macos_backend fskit     # never use macFUSE
+xearthlayer config set fuse.macos_backend macfuse   # never use the extension
+```
+
+With `fskit`, a mount that cannot be made is an error rather than a silent
+fall back to the kernel extension.
+
+### Troubleshooting the extension
+
+- **`mount failed ... File System Extensions`**: the extension is installed but
+  turned off. See step 2.
+- **The mount fails and Console shows `cannot reach XEarthLayer`**: the
+  extension could not connect to `~/.xearthlayer/fskit/<mount>/bridge.sock`.
+  The socket only exists while `xearthlayer` is running.
+- Extension logs: `log stream --predicate 'subsystem == "net.defreyssi.xearthlayer.fskit"'`.
+
 ## Installing macFUSE
+
+Needed on macOS releases before 26, or if you prefer the kernel extension. On
+macOS 26 you can skip this section and use the
+[file system extension](#mounting-without-a-kernel-extension-macos-26) instead.
 
 macFUSE ships as a kernel extension (kext), so installation involves a one-time
 security approval that is stricter on Apple Silicon Macs.

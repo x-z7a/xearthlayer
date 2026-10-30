@@ -461,6 +461,7 @@ Controls Linux FUSE kernel parameters for concurrent background request limits. 
 |---------|---------|-------|-------------|
 | `max_background` | 256 | 1-1024 | Maximum pending background FUSE requests before the kernel queues them |
 | `congestion_threshold` | 192 | 1-1024 | Kernel starts throttling when pending requests exceed this (convention: 75% of max_background) |
+| `macos_backend` | auto | auto, fskit, macfuse | macOS only: how the scenery filesystem is mounted (see below) |
 
 **When to modify:**
 - If you experience sim freezes at DSF boundaries, try increasing both values
@@ -472,7 +473,22 @@ Controls Linux FUSE kernel parameters for concurrent background request limits. 
 [fuse]
 max_background = 256
 congestion_threshold = 192
+macos_backend = auto
 ```
+
+**`macos_backend`** (macOS only; ignored elsewhere) chooses how the scenery
+filesystem is mounted:
+
+- `auto`: XEarthLayer's FSKit module when it is installed and turned on
+  (macOS 26 and later), with macFUSE as the fallback if the FSKit mount fails.
+  macFUSE is used directly when the module is not installed or is turned off.
+- `fskit`: always the FSKit module, so no kernel extension is involved. Startup
+  fails with a message naming the problem if the module cannot mount. It never
+  falls back to macFUSE.
+- `macfuse`: always macFUSE (the kernel extension), as before 0.5.
+
+`max_background` and `congestion_threshold` are FUSE INIT parameters and have
+no effect on an FSKit mount. See [macOS](macos.md#mounting-without-a-kernel-extension-macos-26).
 
 ### [night]
 
@@ -590,6 +606,8 @@ enabled = true
 ; The Linux kernel default of 12/9 causes X-Plane freezes at DSF boundaries
 max_background = 256
 congestion_threshold = 192
+; macOS only: auto, fskit or macfuse
+macos_backend = auto
 
 [night]
 ; Night lighting from OXO night recipes in installed packages (false = always dark)

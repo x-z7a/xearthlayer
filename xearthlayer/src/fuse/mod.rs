@@ -11,8 +11,10 @@
 // Internal support modules: shared types + inode management (used by fuse3)
 pub(crate) mod support;
 
+pub mod bridge;
 mod coalesce;
 mod filename;
+pub mod fskit;
 pub mod fuse3;
 mod placeholder;
 

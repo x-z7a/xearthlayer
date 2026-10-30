@@ -23,6 +23,7 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 
 use xearthlayer::executor::ChannelDdsClient;
+use xearthlayer::fuse::fskit::MacosBackend;
 use xearthlayer::fuse::fuse3::Fuse3OrthoUnionFS;
 use xearthlayer::ortho_union::OrthoUnionIndexBuilder;
 use xearthlayer::runtime::JobRequest;
@@ -56,7 +57,9 @@ async fn ortho_union_fs_mounts_and_serves_a_file_through_macfuse() {
     let (tx, _rx) = mpsc::channel::<JobRequest>(8);
     let dds_client = Arc::new(ChannelDdsClient::new(tx));
 
-    let fs = Fuse3OrthoUnionFS::new(index, dds_client, 11_174_016);
+    // Pinned: with the FSKit module installed, `auto` would mount through it.
+    let fs = Fuse3OrthoUnionFS::new(index, dds_client, 11_174_016)
+        .with_macos_backend(MacosBackend::Macfuse);
     let handle = fs
         .mount_spawned(&mount_str)
         .await
@@ -104,7 +107,8 @@ async fn ortho_union_fs_volume_is_named_after_its_mount_point_folder() {
     std::fs::create_dir(&mountpoint).unwrap();
 
     let (tx, _rx) = mpsc::channel::<JobRequest>(8);
-    let fs = Fuse3OrthoUnionFS::new(index, Arc::new(ChannelDdsClient::new(tx)), 11_174_016);
+    let fs = Fuse3OrthoUnionFS::new(index, Arc::new(ChannelDdsClient::new(tx)), 11_174_016)
+        .with_macos_backend(MacosBackend::Macfuse);
     let handle = fs
         .mount_spawned(mountpoint.to_str().unwrap())
         .await

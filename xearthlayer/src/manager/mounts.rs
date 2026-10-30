@@ -149,6 +149,8 @@ pub struct MountManager {
     fuse_max_background: u16,
     /// Congestion threshold for background FUSE requests (kernel limit).
     fuse_congestion_threshold: u16,
+    /// How the ortho mount is made on macOS (`fuse.macos_backend`).
+    macos_backend: crate::fuse::fskit::MacosBackend,
     /// Upper bound in seconds for a single DDS generation behind a FUSE read.
     generation_timeout_secs: u64,
     /// Whether the ortho mount serves generated night lighting (`night.enabled`).
@@ -177,6 +179,7 @@ impl MountManager {
             geo_index: None,
             fuse_max_background: DEFAULT_FUSE_MAX_BACKGROUND,
             fuse_congestion_threshold: DEFAULT_FUSE_CONGESTION_THRESHOLD,
+            macos_backend: crate::fuse::fskit::MacosBackend::default(),
             generation_timeout_secs: DEFAULT_GENERATION_TIMEOUT_SECS,
             night_enabled: false,
             night_lighting: crate::night::NightLighting::Off,
@@ -202,6 +205,12 @@ impl MountManager {
     pub fn set_fuse_limits(&mut self, max_background: u16, congestion_threshold: u16) {
         self.fuse_max_background = max_background;
         self.fuse_congestion_threshold = congestion_threshold;
+    }
+
+    /// Choose how the ortho mount is made on macOS: FSKit, macFUSE, or
+    /// whichever is usable. Has no effect on other platforms.
+    pub fn set_macos_backend(&mut self, backend: crate::fuse::fskit::MacosBackend) {
+        self.macos_backend = backend;
     }
 
     /// Enable or disable generated night lighting for the ortho mount.
@@ -574,6 +583,7 @@ impl MountManager {
                 .with_geo_index(Arc::clone(&geo_index))
                 .with_state_observer(state_observer)
                 .with_fuse_limits(self.fuse_max_background, self.fuse_congestion_threshold)
+                .with_macos_backend(self.macos_backend)
                 .with_timeout(Duration::from_secs(self.generation_timeout_secs));
 
         if let Some(budget) = pinned_budget {
