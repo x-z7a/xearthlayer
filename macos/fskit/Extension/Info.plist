@@ -9,7 +9,7 @@
 	<key>CFBundleExecutable</key>
 	<string>XEarthLayerFS</string>
 	<key>CFBundleIdentifier</key>
-	<string>net.defreyssi.xearthlayer.fskit</string>
+	<string>@BUNDLE_PREFIX@.xearthlayer.fskit</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>

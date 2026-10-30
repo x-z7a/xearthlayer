@@ -130,6 +130,19 @@ The module runs in the app sandbox. Its entitlements:
   FSKit also hands it the resource directory, which may be enough on its own.
   If testing shows it is, the exception can go.
 
+Bundle ids are `<prefix>.xearthlayer` and `<prefix>.xearthlayer.fskit`, with
+the prefix set at build time (`MACOS_FSKIT_BUNDLE_PREFIX`, default
+`net.defreyssi`), because they must match App IDs registered to whichever team
+signs. XEarthLayer therefore finds the module by listing the FSKit extension
+point (`pluginkit -m -p com.apple.fskit.fsmodule`) and matching the
+`.xearthlayer.fskit` suffix, not one fixed id.
+
+`.github/workflows/fskit-test-build.yml` produces a signed (and, for a
+Developer ID identity, notarized) test build of the app plus the CLI from the
+same commit. Its header lists the secrets it reads; provisioning profiles are
+optional secrets, so the same workflow shows whether macOS loads the module
+without them.
+
 Release packaging does not build `XEarthLayer.app` yet. That needs the
 project's Developer ID team to enable the FSKit Module capability for both
 bundle ids (`net.defreyssi.xearthlayer`, `net.defreyssi.xearthlayer.fskit`) and

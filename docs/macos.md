@@ -60,7 +60,7 @@ Open **System Settings → General → Login Items & Extensions**. Under
 Check that macOS sees it:
 
 ```bash
-pluginkit -m -i net.defreyssi.xearthlayer.fskit   # one line, not starting with '-'
+pluginkit -m -p com.apple.fskit.fsmodule | grep xearthlayer   # listed, no '-' flag
 ```
 
 ### 3. Run XEarthLayer

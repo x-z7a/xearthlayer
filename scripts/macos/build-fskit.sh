@@ -20,6 +20,10 @@
 #                            grant the FSKit module capability.
 #   MACOS_FSKIT_TEAM_ID      team id prefixed to application identifiers when
 #                            signing with profiles.
+#   MACOS_FSKIT_BUNDLE_PREFIX  reverse-DNS prefix of the bundle ids: the app is
+#                            <prefix>.xearthlayer, the module
+#                            <prefix>.xearthlayer.fskit. Must match the App IDs
+#                            the profiles were made for. Default: net.defreyssi.
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -42,6 +46,12 @@ case "$bundle_version" in
 esac
 
 identity=${MACOS_FSKIT_IDENTITY:--}
+prefix=${MACOS_FSKIT_BUNDLE_PREFIX:-net.defreyssi}
+case "$prefix" in
+    '' | *[!A-Za-z0-9.-]*) echo "error: bundle prefix '$prefix' is not reverse-DNS" >&2; exit 2 ;;
+esac
+app_id="$prefix.xearthlayer"
+ext_id="$prefix.xearthlayer.fskit"
 sdk=$(xcrun --show-sdk-path)
 target=arm64-apple-macos26.0
 work=$(mktemp -d)
@@ -52,7 +62,7 @@ ext="$app/Contents/Extensions/XEarthLayerFS.appex"
 mkdir -p "$app/Contents/MacOS" "$ext/Contents/MacOS"
 
 render_plist() {
-    sed "s/@VERSION@/$bundle_version/g" "$1" > "$2"
+    sed -e "s/@VERSION@/$bundle_version/g" -e "s/@BUNDLE_PREFIX@/$prefix/g" "$1" > "$2"
     plutil -lint -s "$2"
 }
 
@@ -75,9 +85,9 @@ cp "$src/Extension/XEarthLayerFS.entitlements" "$ext_entitlements"
 cp "$src/App/XEarthLayer.entitlements" "$app_entitlements"
 if [ -n "${MACOS_FSKIT_TEAM_ID:-}" ]; then
     team=$MACOS_FSKIT_TEAM_ID
-    /usr/libexec/PlistBuddy -c "Add :com.apple.application-identifier string $team.net.defreyssi.xearthlayer.fskit" "$ext_entitlements"
+    /usr/libexec/PlistBuddy -c "Add :com.apple.application-identifier string $team.$ext_id" "$ext_entitlements"
     /usr/libexec/PlistBuddy -c "Add :com.apple.developer.team-identifier string $team" "$ext_entitlements"
-    /usr/libexec/PlistBuddy -c "Add :com.apple.application-identifier string $team.net.defreyssi.xearthlayer" "$app_entitlements"
+    /usr/libexec/PlistBuddy -c "Add :com.apple.application-identifier string $team.$app_id" "$app_entitlements"
     /usr/libexec/PlistBuddy -c "Add :com.apple.developer.team-identifier string $team" "$app_entitlements"
 fi
 if [ -n "${MACOS_FSKIT_EXT_PROFILE:-}" ]; then
@@ -104,4 +114,4 @@ codesign --verify --deep --strict "$app"
 mkdir -p "$out_dir"
 rm -rf "${out_dir:?}/XEarthLayer.app"
 mv "$app" "$out_dir/"
-echo "Built $out_dir/XEarthLayer.app"
+echo "Built $out_dir/XEarthLayer.app ($app_id, module $ext_id)"

@@ -15,15 +15,12 @@ use fuse3::raw::Filesystem;
 use tokio::sync::oneshot;
 use tracing::{debug, info, warn};
 
-use super::backend::{parse_pluginkit_listing, ModuleState};
+use super::backend::{parse_pluginkit_listing, ModuleState, FSKIT_EXTENSION_POINT};
 use crate::fuse::bridge::BridgeServer;
 use crate::fuse::SpawnedMountHandle;
 
 /// The type name the module registers (`FSShortName` in its `Info.plist`).
 pub const FS_SHORT_NAME: &str = "xearthlayer";
-
-/// Bundle identifier of the module (`macos/fskit/Extension/Info.plist`).
-pub const MODULE_BUNDLE_ID: &str = "net.defreyssi.xearthlayer.fskit";
 
 /// Name of the bridge socket inside the resource directory. The module looks
 /// for exactly this name.
@@ -39,12 +36,10 @@ const RECLAIM_TIMEOUT: Duration = Duration::from_secs(2);
 /// Ask pluginkit whether the module is installed and enabled.
 pub fn module_state() -> ModuleState {
     match Command::new("/usr/bin/pluginkit")
-        .args(["-m", "-i", MODULE_BUNDLE_ID])
+        .args(["-m", "-p", FSKIT_EXTENSION_POINT])
         .output()
     {
-        Ok(output) => {
-            parse_pluginkit_listing(&String::from_utf8_lossy(&output.stdout), MODULE_BUNDLE_ID)
-        }
+        Ok(output) => parse_pluginkit_listing(&String::from_utf8_lossy(&output.stdout)),
         Err(e) => {
             debug!(error = %e, "pluginkit unavailable; treating the FSKit module as missing");
             ModuleState::Missing

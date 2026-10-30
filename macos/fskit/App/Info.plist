@@ -9,7 +9,7 @@
 	<key>CFBundleExecutable</key>
 	<string>XEarthLayer</string>
 	<key>CFBundleIdentifier</key>
-	<string>net.defreyssi.xearthlayer</string>
+	<string>@BUNDLE_PREFIX@.xearthlayer</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>

@@ -45,20 +45,37 @@ pub enum ModuleState {
     Available,
 }
 
-/// Read the module's state from `pluginkit -m -i <bundle id>` output.
+/// The end of the module's bundle id. The prefix depends on who signs the
+/// build (the bundle ids must match the signing team's App IDs), so the
+/// module is recognised by this suffix alone.
+pub const MODULE_BUNDLE_SUFFIX: &str = ".xearthlayer.fskit";
+
+/// The FSKit extension point, for `pluginkit -m -p`.
+pub const FSKIT_EXTENSION_POINT: &str = "com.apple.fskit.fsmodule";
+
+/// Read the module's state from `pluginkit -m -p com.apple.fskit.fsmodule`.
 ///
-/// pluginkit prints one line per matching plug-in, prefixed with its
-/// election: `+` chosen, `-` rejected by the user, a space when the user has
-/// expressed no preference. No line means no such plug-in.
-pub fn parse_pluginkit_listing(output: &str, bundle_id: &str) -> ModuleState {
-    let Some(line) = output.lines().find(|line| line.contains(bundle_id)) else {
-        return ModuleState::Missing;
-    };
-    if line.trim_start().starts_with('-') {
-        ModuleState::Disabled
-    } else {
-        ModuleState::Available
+/// pluginkit prints one line per FSKit module: a few columns of flags, then
+/// `<bundle id>(<version>)`. Among the flags, `-` means the user rejected the
+/// plug-in; other letters (`+` chosen, `F`, ...) do not stop it loading.
+/// XEarthLayer's is the line whose bundle id ends in [`MODULE_BUNDLE_SUFFIX`];
+/// no such line means no module.
+pub fn parse_pluginkit_listing(output: &str) -> ModuleState {
+    for line in output.lines() {
+        let Some((head, _version)) = line.split_once('(') else {
+            continue;
+        };
+        let head = head.trim();
+        let (flags, id) = head.rsplit_once(char::is_whitespace).unwrap_or(("", head));
+        if id.ends_with(MODULE_BUNDLE_SUFFIX) {
+            return if flags.contains('-') {
+                ModuleState::Disabled
+            } else {
+                ModuleState::Available
+            };
+        }
     }
+    ModuleState::Missing
 }
 
 /// The transport a mount will use.
@@ -121,31 +138,57 @@ mod tests {
         }
     }
 
+    /// What pluginkit printed on macOS 26 for the system's own modules.
+    const SYSTEM_MODULES: &str = "     com.apple.fskit.ftp((null))\tE66C2ACE\t2026-08-27\t/System/Library/ExtensionKit/Extensions/com.apple.fskit.ftp.appex
+     com.apple.fskit.exfat((null))\t108631B6\t2026-08-27\t/System/Library/ExtensionKit/Extensions/com.apple.fskit.exfat.appex
+";
+
     #[test]
     fn no_listing_means_missing() {
-        assert_eq!(parse_pluginkit_listing("", ID), ModuleState::Missing);
+        assert_eq!(parse_pluginkit_listing(""), ModuleState::Missing);
         assert_eq!(
-            parse_pluginkit_listing("+    com.example.other(1.0)\n", ID),
+            parse_pluginkit_listing(SYSTEM_MODULES),
             ModuleState::Missing
         );
     }
 
     #[test]
     fn a_rejected_election_is_disabled() {
-        let out = format!("-    {ID}(0.5.0)\n");
-        assert_eq!(parse_pluginkit_listing(&out, ID), ModuleState::Disabled);
+        let out = format!("{SYSTEM_MODULES}-    {ID}(0.5.0)\n");
+        assert_eq!(parse_pluginkit_listing(&out), ModuleState::Disabled);
     }
 
     #[test]
     fn a_chosen_or_unelected_module_is_available() {
-        for prefix in ["+", " ", "!"] {
-            let out = format!("{prefix}    {ID}(0.5.0)\n");
+        for election in ["+", " ", "!"] {
+            let out = format!("{SYSTEM_MODULES}{election}    {ID}(0.5.0)\n");
             assert_eq!(
-                parse_pluginkit_listing(&out, ID),
+                parse_pluginkit_listing(&out),
                 ModuleState::Available,
-                "prefix {prefix:?}"
+                "election {election:?}"
             );
         }
+    }
+
+    #[test]
+    fn a_line_with_flag_columns_is_read() {
+        // Verbatim from macOS 26.6 for a freshly registered, unelected module.
+        let out = format!("   F {ID}(0.5.0)\n{SYSTEM_MODULES}");
+        assert_eq!(parse_pluginkit_listing(&out), ModuleState::Available);
+        let out = format!("-  F {ID}(0.5.0)\n");
+        assert_eq!(parse_pluginkit_listing(&out), ModuleState::Disabled);
+    }
+
+    #[test]
+    fn the_module_is_found_whatever_its_bundle_prefix() {
+        let out = "+    com.x-z7a.xearthlayer.fskit(0.5.0)\n";
+        assert_eq!(parse_pluginkit_listing(out), ModuleState::Available);
+    }
+
+    #[test]
+    fn a_bundle_id_merely_containing_the_suffix_is_not_the_module() {
+        let out = "+    com.example.xearthlayer.fskit.helper(1.0)\n";
+        assert_eq!(parse_pluginkit_listing(out), ModuleState::Missing);
     }
 
     #[test]

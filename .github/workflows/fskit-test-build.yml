@@ -1,0 +1,196 @@
+# Signed test build of the FSKit mount (#210): XEarthLayer.app with the FSKit
+# module, plus the xearthlayer CLI from the same commit, signed with the
+# organisation's certificate and (for a Developer ID identity) notarized, so a
+# tester can install it and mount without macFUSE.
+#
+# Secrets (organisation level):
+#   BUILD_CERTIFICATE_BASE64  base64 of the .p12 holding the signing identity
+#   P12_PASSWORD              password of that .p12
+#   CODESIGN_IDENTITY         e.g. "Developer ID Application: Name (TEAMID)"
+#   APPLE_TEAMID              team id
+#   APPLE_ID, MAC_DEV_PASSWORD  Apple ID and app-specific password for notarytool
+# Optional, needed for macOS to load the module (managed FSKit capability):
+#   FSKIT_APP_PROFILE_BASE64  provisioning profile for <prefix>.xearthlayer
+#   FSKIT_EXT_PROFILE_BASE64  provisioning profile for <prefix>.xearthlayer.fskit,
+#                             with the FSKit Module capability
+# Variable (optional): FSKIT_BUNDLE_PREFIX, default com.x-z7a. It must match
+# the App IDs the profiles were made for.
+name: FSKit test build
+
+on:
+  workflow_dispatch:
+    inputs:
+      bundle_prefix:
+        description: Bundle id prefix (blank = FSKIT_BUNDLE_PREFIX variable, else com.x-z7a)
+        required: false
+        default: ""
+  push:
+    branches: [feat/210-macos-fskit]
+
+concurrency:
+  group: fskit-test-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build, sign and notarize XEarthLayer.app
+    runs-on: macos-26
+    timeout-minutes: 60
+    env:
+      BUNDLE_PREFIX: ${{ inputs.bundle_prefix || vars.FSKIT_BUNDLE_PREFIX || 'com.x-z7a' }}
+      HAS_CERT: ${{ secrets.BUILD_CERTIFICATE_BASE64 != '' }}
+    steps:
+      - uses: actions/checkout@v6
+
+      # FSPathURLResource, which the module mounts with, is macOS 26 SDK API.
+      - name: Select Xcode 26
+        run: |
+          if [ "$(xcrun --show-sdk-version | cut -d. -f1)" -lt 26 ]; then
+            xcode=$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)
+            sudo xcode-select -s "$xcode/Contents/Developer"
+          fi
+          xcodebuild -version
+          xcrun --show-sdk-version
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Test the bridge and backend selection
+        run: |
+          cargo test -p xearthlayer --lib -- fuse::bridge fuse::fskit
+          cargo test -p xearthlayer --test fskit_bridge
+
+      - name: Build the CLI
+        run: cargo build --release -p xearthlayer-cli
+
+      - name: Import signing certificate
+        if: env.HAS_CERT == 'true'
+        env:
+          P12_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 32)"
+          echo "::add-mask::$KEYCHAIN_PASSWORD"
+          printf '%s' "$P12_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" -P "$P12_PASSWORD" \
+            -T /usr/bin/codesign -T /usr/bin/security
+          rm -f "$RUNNER_TEMP/cert.p12"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" > /dev/null
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          security find-identity -v -p codesigning "$KEYCHAIN"
+          echo "SIGNING_KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
+
+      - name: Install provisioning profiles
+        env:
+          APP_PROFILE: ${{ secrets.FSKIT_APP_PROFILE_BASE64 }}
+          EXT_PROFILE: ${{ secrets.FSKIT_EXT_PROFILE_BASE64 }}
+          TEAM_ID: ${{ secrets.APPLE_TEAMID }}
+        run: |
+          if [ -n "$APP_PROFILE" ] && [ -n "$EXT_PROFILE" ]; then
+            printf '%s' "$APP_PROFILE" | base64 --decode > "$RUNNER_TEMP/app.provisionprofile"
+            printf '%s' "$EXT_PROFILE" | base64 --decode > "$RUNNER_TEMP/ext.provisionprofile"
+            for p in app ext; do
+              echo "== $p profile"
+              security cms -D -i "$RUNNER_TEMP/$p.provisionprofile" \
+                | plutil -extract Entitlements xml1 -o - - | grep -A1 -E 'application-identifier|fskit' || true
+            done
+            {
+              echo "MACOS_FSKIT_APP_PROFILE=$RUNNER_TEMP/app.provisionprofile"
+              echo "MACOS_FSKIT_EXT_PROFILE=$RUNNER_TEMP/ext.provisionprofile"
+              # application-identifier is only valid alongside a profile.
+              echo "MACOS_FSKIT_TEAM_ID=$TEAM_ID"
+            } >> "$GITHUB_ENV"
+          else
+            echo "::warning::FSKIT_APP_PROFILE_BASE64 / FSKIT_EXT_PROFILE_BASE64 not set. The module is signed without a provisioning profile; macOS will most likely refuse to load it (managed FSKit capability)."
+          fi
+
+      - name: Build and sign XEarthLayer.app
+        env:
+          MACOS_FSKIT_IDENTITY: ${{ secrets.CODESIGN_IDENTITY }}
+          MACOS_FSKIT_BUNDLE_PREFIX: ${{ env.BUNDLE_PREFIX }}
+        run: |
+          [ "$HAS_CERT" = "true" ] || unset MACOS_FSKIT_IDENTITY
+          version=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          scripts/macos/build-fskit.sh "$version" dist
+
+      - name: Sign the CLI
+        if: env.HAS_CERT == 'true'
+        env:
+          IDENTITY: ${{ secrets.CODESIGN_IDENTITY }}
+        run: |
+          codesign --force --sign "$IDENTITY" --options runtime --timestamp target/release/xearthlayer
+
+      - name: Show signatures
+        run: |
+          codesign -dvv dist/XEarthLayer.app 2>&1 | grep -E 'Identifier|Authority|TeamIdentifier'
+          codesign -d --entitlements - dist/XEarthLayer.app/Contents/Extensions/XEarthLayerFS.appex
+          plutil -p dist/XEarthLayer.app/Contents/Extensions/XEarthLayerFS.appex/Contents/Info.plist \
+            | grep -E 'CFBundleIdentifier|FSShortName'
+
+      # notarytool only accepts Developer ID signatures; an Apple Development
+      # build is for machines registered to the team and skips this.
+      - name: Notarize
+        if: env.HAS_CERT == 'true'
+        env:
+          IDENTITY: ${{ secrets.CODESIGN_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.MAC_DEV_PASSWORD }}
+          TEAM_ID: ${{ secrets.APPLE_TEAMID }}
+        run: |
+          case "$IDENTITY" in
+            "Developer ID Application:"*) ;;
+            *) echo "::notice::$IDENTITY is not a Developer ID identity; skipping notarization."; exit 0 ;;
+          esac
+          mkdir -p "$RUNNER_TEMP/notarize"
+          cp -R dist/XEarthLayer.app target/release/xearthlayer "$RUNNER_TEMP/notarize/"
+          ditto -c -k --keepParent "$RUNNER_TEMP/notarize" "$RUNNER_TEMP/notarize.zip"
+          xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" \
+            --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$TEAM_ID" \
+            --wait --timeout 30m --output-format json | tee "$RUNNER_TEMP/notary.json"
+          status=$(plutil -extract status raw -o - "$RUNNER_TEMP/notary.json" 2>/dev/null || true)
+          if [ "$status" != "Accepted" ]; then
+            id=$(plutil -extract id raw -o - "$RUNNER_TEMP/notary.json")
+            xcrun notarytool log "$id" --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$TEAM_ID"
+            exit 1
+          fi
+          # The app can carry its ticket; the bare CLI is checked online on first run.
+          xcrun stapler staple dist/XEarthLayer.app
+          spctl --assess --type execute -vv dist/XEarthLayer.app
+
+      - name: Package
+        run: |
+          cat > dist/TESTING.md <<'EOF'
+          # Testing the FSKit mount (#210)
+
+          1. Move XEarthLayer.app to /Applications and open it once.
+          2. System Settings > General > Login Items & Extensions >
+             File System Extensions (i): turn on XEarthLayer.
+          3. Check: pluginkit -m -p com.apple.fskit.fsmodule | grep xearthlayer
+          4. ./xearthlayer config set fuse.macos_backend fskit
+          5. ./xearthlayer run   (log: "Mounted through the FSKit module")
+
+          Module logs: log stream --predicate 'subsystem == "net.defreyssi.xearthlayer.fskit"'
+          Loader errors: log stream --predicate 'process == "fskitd" OR process == "amfid"'
+          EOF
+          cp target/release/xearthlayer dist/
+          name="xearthlayer-fskit-${GITHUB_SHA::8}"
+          echo "ARTIFACT_NAME=$name" >> "$GITHUB_ENV"
+          # ditto keeps the bundle's signature and stapled ticket intact;
+          # upload-artifact's own zip does not preserve symlinks.
+          mv dist "$name"
+          ditto -c -k --keepParent "$name" "$name.zip"
+
+      - name: Remove signing keychain
+        if: always() && env.SIGNING_KEYCHAIN != ''
+        run: security delete-keychain "$SIGNING_KEYCHAIN"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: ${{ env.ARTIFACT_NAME }}.zip
+          if-no-files-found: error
