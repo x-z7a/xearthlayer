@@ -181,8 +181,8 @@ impl Preflight<BootstrapContext> for AirportIcao {
 
 /// Require macFUSE to be installed before attempting to mount.
 ///
-/// Without this a missing or unapproved kext surfaces as an opaque mount
-/// failure, which tells the user nothing about what to do.
+/// Without this a missing macFUSE surfaces as an opaque mount failure, which
+/// tells the user nothing about what to do.
 ///
 /// # What is probed, and what is not
 ///
@@ -242,8 +242,10 @@ impl Preflight<BootstrapContext> for MacFuseAvailable {
                 self.probe.display()
             ))
             .with_hint(
-                "Install macFUSE from https://macfuse.io, then approve the system \
-                 extension. See docs/macos.md for the approval steps.",
+                "Install macFUSE 5.2 or later from https://macfuse.io, then turn on \
+                 macFUSE under System Settings > General > Login Items & Extensions > \
+                 File System Extensions (the default FSKit backend), or approve its \
+                 kernel extension for fuse.macos_backend = kernel. See docs/macos.md.",
             )
         }
     }

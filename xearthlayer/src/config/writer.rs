@@ -243,6 +243,13 @@ max_background = {}
 ; Congestion threshold for background FUSE requests (default: 192, range: 1-1024)
 ; Kernel starts throttling when pending requests exceed this. Convention: 75% of max_background.
 congestion_threshold = {}
+; macOS only: which macFUSE backend mounts the scenery (default: fskit)
+;   fskit  - macFUSE's FSKit backend, no kernel extension (macFUSE 5.2+; turn on
+;            macFUSE under System Settings > General > Login Items & Extensions >
+;            File System Extensions)
+;   kernel - the macFUSE kernel extension (needs Recovery mode approval on Apple Silicon)
+;   auto   - FSKit when it can mount, the kernel extension otherwise
+macos_backend = {}
 
 [night]
 ; Night lighting from OXO night recipes in installed packages.
@@ -308,6 +315,7 @@ symbols = {}
         // FUSE settings
         config.fuse.max_background,
         config.fuse.congestion_threshold,
+        config.fuse.macos_backend,
         // Night lighting settings
         config.night.enabled,
         config.night.brightness,

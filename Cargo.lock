@@ -1146,7 +1146,6 @@ dependencies = [
 [[package]]
 name = "fuse3"
 version = "0.9.0"
-source = "git+https://github.com/samsoir/fuse3?branch=master#8b3e390eec32466837f688ac6d39f801f3750c89"
 dependencies = [
  "async-notify",
  "bytes",

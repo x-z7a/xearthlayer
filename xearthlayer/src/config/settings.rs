@@ -297,4 +297,8 @@ pub struct FuseSettings {
     /// Kernel starts throttling when pending requests exceed this.
     /// Default: 192 (75% of max_background)
     pub congestion_threshold: u16,
+    /// Which macFUSE backend mounts the volume on macOS: `fskit` (default,
+    /// no kernel extension), `kernel` (the macFUSE kext) or `auto` (FSKit,
+    /// falling back to the kext). Ignored on other platforms.
+    pub macos_backend: String,
 }
